@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>SPIKE Prime + Teachable Machine Vision Bridge</title>
+
+ <!-- TensorFlow.js and Teachable Machine Libraries -->
+ <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+ <style>
+   body {
+     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+     text-align: center;
+     padding: 15px;
+     background-color: #f4f6f8;
+     color: #333;
+   }
+   h2 { margin-bottom: 5px; }
+   .status-card {
+     background: #ffffff;
+     border-radius: 12px;
+     padding: 12px;
+     margin: 15px auto;
+     max-width: 320px;
+     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+     font-weight: bold;
+     color: #007aff;
+   }
+   button {
+     background-color: #007aff;
+     color: white;
+     border: none;
+     padding: 12px 20px;
+     font-size: 16px;
+     font-weight: 600;
+     border-radius: 8px;
+     margin: 6px;
+     width: 80%;
+     max-width: 300px;
+   }
+   button:disabled { background-color: #a2a2a2; }
+   #webcam-container {
+     margin: 15px auto;
+     display: flex;
+     justify-content: center;
+   }
+   canvas {
+     border-radius: 12px;
+     border: 3px solid #007aff;
+   }
+   #result {
+     font-size: 20px;
+     font-weight: bold;
+     color: #28a745;
+     margin-top: 10px;
+   }
+ </style>
+</head>
+<body>
+
+ <h2>SPIKE Vision Bridge</h2>
+ <p style="font-size: 0.9em; color: #666;">Model: <code>egUzLqDO3</code></p>
+
+ <button id="bleBtn" onclick="connectBLE()">1. Connect SPIKE Prime</button>
+ <button id="camBtn" onclick="initCamera()" disabled>2. Start iPhone Camera</button>
+
+ <div id="status" class="status-card">Status: Disconnected</div>
+
+ <div id="webcam-container"></div>
+ <div id="result">Result: Pending...</div>
+
+ <script>
+   // Your exact Teachable Machine Model URL
+   const MODEL_URL = "https://teachablemachine.withgoogle.com/models/egUzLqDO3/";
+
+   let model, webcam, gattTxCharacteristic, gattRxCharacteristic;
+
+   // Nordic UART Service (Standard BLE REPL/Serial for SPIKE Prime / Pybricks)
+   const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+   const UART_TX_CHARACTERISTIC = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // iPhone -> Robot
+   const UART_RX_CHARACTERISTIC = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // Robot -> iPhone
+
+   // 1. Connect to SPIKE Prime over Web Bluetooth
+   async function connectBLE() {
+     const statusDiv = document.getElementById("status");
+     statusDiv.innerText = "Connecting to SPIKE Prime...";
+
+     try {
+       const device = await navigator.bluetooth.requestDevice({
+         filters: [{ namePrefix: "LEGO" }, { namePrefix: "Pybricks" }],
+         optionalServices: [UART_SERVICE_UUID]
+       });
+
+       const server = await device.gatt.connect();
+       const service = await server.getPrimaryService(UART_SERVICE_UUID);
+
+       gattTxCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC);
+       gattRxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC);
+
+       // Listen for incoming signals from SPIKE Prime
+       await gattRxCharacteristic.startNotifications();
+       gattRxCharacteristic.addEventListener('characteristicvaluechanged', handleRobotSignal);
+
+       statusDiv.innerText = "SPIKE Prime Connected!";
+       statusDiv.style.color = "#28a745";
+       document.getElementById("camBtn").disabled = false;
+       document.getElementById("bleBtn").disabled = true;
+
+     } catch (err) {
+       console.error("BLE Error:", err);
+       statusDiv.innerText = "BLE Connection Failed";
+       statusDiv.style.color = "#dc3545";
+     }
+   }
+
+   // 2. Initialize Camera and Load TensorFlow.js Model
+   async function initCamera() {
+     const statusDiv = document.getElementById("status");
+     statusDiv.innerText = "Loading Model & Camera...";
+     statusDiv.style.color = "#007aff";
+
+     // Load model architecture and metadata directly from your URL
+     model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+
+     // Setup webcam (224x224 matches standard TM input)
+     webcam = new tmImage.Webcam(224, 224, true);
+     await webcam.setup({ facingMode: "environment" }); // Use rear-facing iPhone camera
+     await webcam.play();
+
+     document.getElementById("webcam-container").appendChild(webcam.canvas);
+     document.getElementById("camBtn").disabled = true;
+
+     statusDiv.innerText = "Ready! Waiting for 'CAPTURE' signal...";
+     statusDiv.style.color = "#28a745";
+   }
+
+   // 3. Handle incoming trigger from SPIKE Prime
+   async function handleRobotSignal(event) {
+     let decoder = new TextDecoder();
+     let command = decoder.decode(event.target.value).trim();
+
+     // When robot sends "CAPTURE", run classification
+     if (command === "CAPTURE") {
+       document.getElementById("status").innerText = "Capturing Image & Running Model...";
+
+       webcam.update();
+
+       // Predict against camera frame
+       const prediction = await model.predict(webcam.canvas);
+
+       // Find class with highest confidence score
+       let topClass = prediction.reduce((max, p) => p.probability > max.probability ? p : max, prediction[0]);
+
+       // Update web display
+       document.getElementById("result").innerText = `Detected: ${topClass.className} (${(topClass.probability * 100).toFixed(0)}%)`;
+
+       // Send label string back to SPIKE Prime
+       if (gattTxCharacteristic) {
+         let encoder = new TextEncoder();
+         await gattTxCharacteristic.writeValue(encoder.encode(topClass.className + "\n"));
+         document.getElementById("status").innerText = `Sent '${topClass.className}' to SPIKE. Waiting next spot...`;
+       }
+     }
+   }
+ </script>
+</body>
+</html>
