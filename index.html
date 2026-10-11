@@ -65,8 +65,8 @@
         document.getElementById("bleBtn").disabled = true;
 
       } catch (err) {
-        console.error("BLE Error:", err);
-        statusDiv.innerText = "Error: " + err.message;
+        console.error("Full Error:", err);
+        statusDiv.innerText = "Error: " + (err.message || err.name || JSON.stringify(err));
         statusDiv.style.color = "#dc3545";
       }
     }
