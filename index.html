@@ -34,24 +34,26 @@
     // Pybricks / Nordic UART Service UUIDs
     const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
     const UART_RX_CHARACTERISTIC = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+    const UART_TX_CHARACTERISTIC = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
     let model, webcam, rxCharacteristic;
-    let isEvaluating = false;
 
     // 1. Connect Web Bluetooth to Pybricks Hub
     async function connectBluetooth() {
       try {
         document.getElementById("status").innerText = "Searching for Hub...";
-        
-        // Use acceptAllDevices to prevent iOS/Bluefy filter blocking
         const device = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
-          optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
+          filters: [{ services: [UART_SERVICE_UUID] }],
+          optionalServices: [UART_SERVICE_UUID]
         });
-        
         const server = await device.gatt.connect();
-        const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
-        rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
+        const service = await server.getPrimaryService(UART_SERVICE_UUID);
+        
+        rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC);
+        
+        // Start notifications on TX to fully lock the handshake with Pybricks
+        const txCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC);
+        await txCharacteristic.startNotifications();
         
         document.getElementById("status").innerText = "Status: Connected to Robot!";
       } catch (err) {
@@ -92,39 +94,38 @@
     }
 
     async function loop() {
-      webcam.update();
       await predict();
-      // Loop execution delay (runs every ~600ms to preserve mobile battery and performance)
-      setTimeout(() => window.requestAnimationFrame(loop), 600);
+      // 1-second interval to preserve mobile performance and prevent BLE dropouts
+      setTimeout(() => window.requestAnimationFrame(loop), 1000);
     }
 
-    // 3. Run predictions and communicate result over Bluetooth UART
+    // 3. Run predictions and communicate result over Bluetooth UART safely
     async function predict() {
-      if (!model) return;
-      
-      const predictions = await model.predict(webcam.canvas);
-      let topPrediction = predictions[0]; // Assumes Class 0 represents your target match
+      try {
+        if (!model || !webcam) return;
+        
+        webcam.update();
+        const predictions = await model.predict(webcam.canvas);
+        let topPrediction = predictions[0]; 
 
-      document.getElementById("label-container").innerText = 
-        `${topPrediction.className}: ${(topPrediction.probability * 100).toFixed(1)}%`;
+        document.getElementById("label-container").innerText = 
+          `${topPrediction.className}: ${(topPrediction.probability * 100).toFixed(1)}%`;
 
-      if (rxCharacteristic) {
-        const encoder = new TextEncoder();
-        try {
-          if (topPrediction.probability > 0.85) {
-            document.getElementById("status").innerText = "Result: MATCH Sent!";
+        if (rxCharacteristic) {
+          const encoder = new TextEncoder();
+          // Threshold set to 60% (0.60)
+          if (topPrediction.probability > 0.60) {
+            document.getElementById("status").innerText = `Result: MATCH (${topPrediction.className})`;
             await rxCharacteristic.writeValue(encoder.encode("MATCH\n"));
           } else {
             document.getElementById("status").innerText = "Result: NO_MATCH Sent";
             await rxCharacteristic.writeValue(encoder.encode("NO_MATCH\n"));
           }
-        } catch (sendErr) {
-          console.error("BLE Write failed: ", sendErr);
         }
+      } catch (predictErr) {
+        console.error("Prediction loop error: ", predictErr);
       }
     }
   </script>
 </body>
 </html>
-
-```
