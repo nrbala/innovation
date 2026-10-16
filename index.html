@@ -43,24 +43,39 @@
     }
 
     // Step 2: Connect Bluetooth on a clean thread
-    async function connectBluetooth() {
-      try {
-        document.getElementById("status").innerText = "Searching for Hub...";
-        const device = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
-          optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
-        });
-        
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
-        rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
-        
-        document.getElementById("status").innerText = "Status: Connected to Robot!";
-      } catch (err) {
-        alert("Bluetooth Connection Error: " + err);
-        document.getElementById("status").innerText = "Status: Disconnected";
-      }
-    }
+async function connectBluetooth() {
+  try {
+    document.getElementById("status").innerText = "Searching for Hub...";
+    
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
+    });
+    
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+    
+    // 1. Grab RX characteristic (for phone -> hub commands)
+    rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
+    
+    // 2. Grab TX characteristic and start notifications (forces hub to stop blinking!)
+    const txCharacteristic = await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+    await txCharacteristic.startNotifications();
+    
+    // Listen for incoming text printed from the hub
+    txCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+      const decoder = new TextDecoder();
+      const value = decoder.decode(event.target.value);
+      console.log("Hub says: ", value);
+    });
+    
+    document.getElementById("status").innerText = "Status: Connected & Locked!";
+    document.getElementById("label-container").innerText = "Hub linked successfully!";
+  } catch (err) {
+    alert("Bluetooth Connection Error: " + err);
+    document.getElementById("status").innerText = "Status: Disconnected";
+  }
+}
 
     // Step 3: Start Camera
     async function startCamera() {
