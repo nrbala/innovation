@@ -109,20 +109,24 @@
         webcam.update();
         const predictions = await model.predict(webcam.canvas);
         let topPrediction = predictions[0]; 
-
+    
         document.getElementById("label-container").innerText = 
           `${topPrediction.className}: ${(topPrediction.probability * 100).toFixed(1)}%`;
-
+    
         if (rxCharacteristic) {
           const encoder = new TextEncoder();
-          // Threshold set to 60% (0.60)
-          if (topPrediction.probability > 0.60) {
-            document.getElementById("status").innerText = `Result: MATCH (${topPrediction.className})`;
-            await rxCharacteristic.writeValue(encoder.encode("MATCH\n"));
-          } else {
-            document.getElementById("status").innerText = "Result: NO_MATCH Sent";
-            await rxCharacteristic.writeValue(encoder.encode("NO_MATCH\n"));
+          const command = topPrediction.probability > 0.60 ? "MATCH\n" : "NO_MATCH\n";
+          
+          try {
+            await rxCharacteristic.writeValue(encoder.encode(command));
+            document.getElementById("status").innerText = topPrediction.probability > 0.60 ? 
+              `Result: MATCH (${topPrediction.className})` : "Result: NO_MATCH Sent";
+          } catch (writeErr) {
+            document.getElementById("status").innerText = "Status: BLE Disconnected! Reconnect Hub.";
+            console.error("BLE write failed:", writeErr);
           }
+        } else {
+          document.getElementById("status").innerText = "Status: Not Connected to Hub";
         }
       } catch (predictErr) {
         console.error("Prediction loop error: ", predictErr);
