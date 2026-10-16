@@ -77,8 +77,8 @@
 
       model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
 
-      webcam = new tmImage.Webcam(224, 224, true);
-      await webcam.setup({ facingMode: "environment" });
+      webcam = new tmImage.Webcam(224, 224, true); 
+      await webcam.setup(); // Let iOS default to the available camera
       await webcam.play();
 
       document.getElementById("webcam-container").appendChild(webcam.canvas);
