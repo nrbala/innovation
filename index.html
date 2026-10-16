@@ -1,112 +1,130 @@
+Here is the complete, updated `index.html` file incorporating the iOS WebKit camera fixes, explicit canvas/video streaming for Bluefy, and the Pybricks Bluetooth UART integration.
+
+Host this file on your GitHub Pages (or any HTTPS server) and open it inside the Bluefy browser on your iPhone.
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SPIKE Prime + Teachable Machine Vision Bridge</title>
-  
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-
+  <title>SPIKE + Teachable Machine (iOS Compatible)</title>
+  <!-- TensorFlow.js and Teachable Machine Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f4f6f8; }
-    .status-card { background: #fff; border-radius: 10px; padding: 15px; margin: 15px auto; max-width: 320px; font-weight: bold; color: #007aff; word-break: break-word; }
-    button { background-color: #007aff; color: white; border: none; padding: 14px 20px; font-size: 16px; border-radius: 8px; margin: 8px; width: 85%; max-width: 300px; }
-    button:disabled { background-color: #a2a2a2; }
-    canvas { border-radius: 10px; border: 3px solid #007aff; margin-top: 10px; }
+    body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f9; color: #333; }
+    #webcam-container { margin: 15px auto; display: flex; justify-content: center; align-items: center; }
+    #webcam-container video, #webcam-container canvas { border-radius: 12px; width: 100%; max-width: 280px; border: 3px solid #007aff; }
+    button { padding: 14px 24px; margin: 8px; font-size: 16px; border-radius: 8px; border: none; background: #007aff; color: white; font-weight: bold; cursor: pointer;}
+    button:active { background: #005bb5; }
+    #status { font-weight: bold; font-size: 1.1rem; margin-top: 15px; color: #007aff; }
+    #label-container { font-size: 1.2rem; font-weight: bold; margin-top: 10px; }
   </style>
 </head>
 <body>
 
-  <h2>SPIKE Vision Bridge</h2>
-  
-  <button id="bleBtn" onclick="connectBLE()">1. Connect SPIKE Prime</button>
-  <button id="camBtn" onclick="initCamera()" disabled>2. Start iPhone Camera</button>
-
-  <div id="status" class="status-card">Status: Disconnected</div>
+  <h2>AI Robot Classifier</h2>
+  <button onclick="connectBluetooth()">1. Connect Pybricks Hub</button>
+  <button onclick="initCameraAndModel()">2. Start iPhone Camera</button>
 
   <div id="webcam-container"></div>
-  <div id="result" style="font-weight: bold; font-size: 18px; margin-top: 10px;">Result: Pending...</div>
+  <div id="status">Status: Disconnected</div>
+  <div id="label-container">Initializing model...</div>
 
   <script>
+    // Replace with your Teachable Machine model URL ending with a slash
     const MODEL_URL = "https://teachablemachine.withgoogle.com/models/egUzLqDO3/";
-    let model, webcam, gattTxCharacteristic, gattRxCharacteristic;
-
+    
+    // Pybricks / Nordic UART Service UUIDs
     const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-    const UART_TX_CHARACTERISTIC = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; 
-    const UART_RX_CHARACTERISTIC = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; 
+    const UART_RX_CHARACTERISTIC = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
-    async function connectBLE() {
-      const statusDiv = document.getElementById("status");
-      statusDiv.innerText = "Requesting Bluetooth Device...";
+    let model, webcam, rxCharacteristic;
+    let isEvaluating = false;
 
+    // 1. Connect Web Bluetooth to Pybricks Hub
+    async function connectBluetooth() {
       try {
-        // acceptAllDevices bypasses name-filtering issues entirely
         const device = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
+          filters: [{ services: [UART_SERVICE_UUID] }],
           optionalServices: [UART_SERVICE_UUID]
         });
-
-        statusDiv.innerText = "Connecting to GATT Server...";
         const server = await device.gatt.connect();
-
-        statusDiv.innerText = "Finding UART Service...";
         const service = await server.getPrimaryService(UART_SERVICE_UUID);
-
-        gattTxCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC);
-        gattRxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC);
-
-        await gattRxCharacteristic.startNotifications();
-        gattRxCharacteristic.addEventListener('characteristicvaluechanged', handleRobotSignal);
-
-        statusDiv.innerText = "SPIKE Prime Connected!";
-        statusDiv.style.color = "#28a745";
-        document.getElementById("camBtn").disabled = false;
-        document.getElementById("bleBtn").disabled = true;
-
+        rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC);
+        
+        document.getElementById("status").innerText = "Status: Connected to Robot!";
       } catch (err) {
-        console.error("Full Error:", err);
-        statusDiv.innerText = "Error: " + (err.message || err.name || JSON.stringify(err));
-        statusDiv.style.color = "#dc3545";
+        alert("Bluetooth Connection Error: " + err);
       }
     }
 
-    async function initCamera() {
-      const statusDiv = document.getElementById("status");
-      statusDiv.innerText = "Loading Model & Camera...";
+    // 2. Initialize Camera and Teachable Machine (iOS Fixed)
+    async function initCameraAndModel() {
+      try {
+        document.getElementById("status").innerText = "Loading AI Model...";
+        model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+        
+        // Setup Teachable Machine Webcam
+        const flip = true;
+        webcam = new tmImage.Webcam(224, 224, flip);
+        await webcam.setup({ facingMode: "environment" }); // Use rear-facing camera on iOS
+        await webcam.play();
+        
+        const container = document.getElementById("webcam-container");
+        container.innerHTML = ""; // Clear existing placeholders
 
-      model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
-
-      webcam = new tmImage.Webcam(224, 224, true); 
-      await webcam.setup(); // Let iOS default to the available camera
-      await webcam.play();
-
-      document.getElementById("webcam-container").appendChild(webcam.canvas);
-      document.getElementById("camBtn").disabled = true;
-
-      statusDiv.innerText = "Ready! Waiting for 'CAPTURE' signal...";
+        // iOS WebKit compatibility fix: Explicitly configure and append the inner video element
+        if (webcam.webcam) {
+          webcam.webcam.setAttribute("playsinline", "true");
+          webcam.webcam.setAttribute("autoplay", "true");
+          container.appendChild(webcam.webcam);
+        } else {
+          container.appendChild(webcam.canvas);
+        }
+        
+        document.getElementById("status").innerText = "Camera Active. Running AI...";
+        window.requestAnimationFrame(loop);
+      } catch (err) {
+        alert("Camera Initialization Error: Make sure you are using HTTPS and granted camera permission in iOS Settings. Details: " + err);
+      }
     }
 
-    async function handleRobotSignal(event) {
-      let decoder = new TextDecoder();
-      let command = decoder.decode(event.target.value).trim();
+    async function loop() {
+      webcam.update();
+      await predict();
+      // Loop execution delay (runs every ~600ms to preserve mobile battery and performance)
+      setTimeout(() => window.requestAnimationFrame(loop), 600);
+    }
 
-      if (command === "CAPTURE") {
-        document.getElementById("status").innerText = "Capturing & Classifying...";
-        webcam.update();
-        
-        const prediction = await model.predict(webcam.canvas);
-        let topClass = prediction.reduce((max, p) => p.probability > max.probability ? p : max, prediction[0]);
+    // 3. Run predictions and communicate result over Bluetooth UART
+    async function predict() {
+      if (!model) return;
+      
+      const predictions = await model.predict(webcam.canvas);
+      let topPrediction = predictions[0]; // Assumes Class 0 represents your target match
 
-        document.getElementById("result").innerText = `Detected: ${topClass.className} (${(topClass.probability * 100).toFixed(0)}%)`;
+      document.getElementById("label-container").innerText = 
+        `${topPrediction.className}: ${(topPrediction.probability * 100).toFixed(1)}%`;
 
-        if (gattTxCharacteristic) {
-          let encoder = new TextEncoder();
-          await gattTxCharacteristic.writeValue(encoder.encode(topClass.className + "\n"));
-          document.getElementById("status").innerText = `Sent '${topClass.className}' to SPIKE.`;
+      if (rxCharacteristic) {
+        const encoder = new TextEncoder();
+        try {
+          if (topPrediction.probability > 0.85) {
+            document.getElementById("status").innerText = "Result: MATCH Sent!";
+            await rxCharacteristic.writeValue(encoder.encode("MATCH\n"));
+          } else {
+            document.getElementById("status").innerText = "Result: NO_MATCH Sent";
+            await rxCharacteristic.writeValue(encoder.encode("NO_MATCH\n"));
+          }
+        } catch (sendErr) {
+          console.error("BLE Write failed: ", sendErr);
         }
       }
     }
   </script>
 </body>
 </html>
+
+```
