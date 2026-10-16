@@ -118,11 +118,12 @@
           const command = topPrediction.probability > 0.60 ? "MATCH\n" : "NO_MATCH\n";
           
           try {
-            await rxCharacteristic.writeValue(encoder.encode(command));
+            // Use writeValueWithoutResponse for reliable iOS/Bluefy transmission
+            await rxCharacteristic.writeValueWithoutResponse(encoder.encode(command));
             document.getElementById("status").innerText = topPrediction.probability > 0.60 ? 
               `Result: MATCH (${topPrediction.className})` : "Result: NO_MATCH Sent";
           } catch (writeErr) {
-            document.getElementById("status").innerText = "Status: BLE Disconnected! Reconnect Hub.";
+            document.getElementById("status").innerText = "Status: BLE Write Failed";
             console.error("BLE write failed:", writeErr);
           }
         } else {
