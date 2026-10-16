@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SPIKE + Teachable Machine (iOS Compatible)</title>
-  <!-- TensorFlow.js and Teachable Machine Libraries -->
+  <title>SPIKE + Teachable Machine (iOS Fixed)</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
   <style>
@@ -12,7 +11,6 @@
     #webcam-container { margin: 15px auto; display: flex; justify-content: center; align-items: center; }
     #webcam-container video, #webcam-container canvas { border-radius: 12px; width: 100%; max-width: 280px; border: 3px solid #007aff; }
     button { padding: 14px 24px; margin: 8px; font-size: 16px; border-radius: 8px; border: none; background: #007aff; color: white; font-weight: bold; cursor: pointer;}
-    button:active { background: #005bb5; }
     #status { font-weight: bold; font-size: 1.1rem; margin-top: 15px; color: #007aff; }
     #label-container { font-size: 1.2rem; font-weight: bold; margin-top: 10px; }
   </style>
@@ -20,66 +18,61 @@
 <body>
 
   <h2>AI Robot Classifier</h2>
-  <button onclick="connectBluetooth()">1. Connect Pybricks Hub</button>
-  <button onclick="initCameraAndModel()">2. Start iPhone Camera</button>
+  <button onclick="loadModelFirst()">1. Load AI Model</button>
+  <button onclick="connectBluetooth()">2. Connect Pybricks Hub</button>
+  <button onclick="startCamera()">3. Start Camera & Run AI</button>
 
   <div id="webcam-container"></div>
-  <div id="status">Status: Disconnected</div>
-  <div id="label-container">Initializing model...</div>
+  <div id="status">Status: Ready</div>
+  <div id="label-container">Model not loaded</div>
 
   <script>
-    let model, webcam, rxCharacteristic, device;
-    // Replace with your Teachable Machine model URL ending with a slash
     const MODEL_URL = "https://teachablemachine.withgoogle.com/models/egUzLqDO3/";
-    
-    // Pybricks / Nordic UART Service UUIDs
-    const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-    const UART_RX_CHARACTERISTIC = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-    const UART_TX_CHARACTERISTIC = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
-
     let model, webcam, rxCharacteristic;
 
-    // 1. Connect Web Bluetooth to Pybricks Hub
-    async function connectBluetooth() {
-  try {
-    document.getElementById("status").innerText = "Searching for Hub...";
-    
-    // Request device using acceptAllDevices for reliable iOS scanning
-  device = await navigator.bluetooth.requestDevice({
-    acceptAllDevices: true,
-    optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
-  });
-    
-    const server = await device.gatt.connect();
-    const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
-    
-    // Grab ONLY the RX characteristic to send data from phone -> hub
-    rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
-    
-    document.getElementById("status").innerText = "Status: Connected to Robot!";
-    console.log("Connected successfully to Nordic UART RX!");
-  } catch (err) {
-    alert("Bluetooth Connection Error: " + err);
-    document.getElementById("status").innerText = "Status: Disconnected";
-  }
-}
-
-    // 2. Initialize Camera and Teachable Machine (iOS Fixed)
-    async function initCameraAndModel() {
+    // Step 1: Load Model first so it doesn't interfere with Bluetooth later
+    async function loadModelFirst() {
       try {
         document.getElementById("status").innerText = "Loading AI Model...";
         model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+        document.getElementById("status").innerText = "Model Loaded Successfully!";
+        document.getElementById("label-container").innerText = "Ready to connect Bluetooth";
+      } catch (err) {
+        alert("Model Load Error: " + err);
+      }
+    }
+
+    // Step 2: Connect Bluetooth on a clean thread
+    async function connectBluetooth() {
+      try {
+        document.getElementById("status").innerText = "Searching for Hub...";
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
+        });
         
-        // Setup Teachable Machine Webcam
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+        rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
+        
+        document.getElementById("status").innerText = "Status: Connected to Robot!";
+      } catch (err) {
+        alert("Bluetooth Connection Error: " + err);
+        document.getElementById("status").innerText = "Status: Disconnected";
+      }
+    }
+
+    // Step 3: Start Camera
+    async function startCamera() {
+      try {
+        document.getElementById("status").innerText = "Starting Camera...";
         const flip = true;
         webcam = new tmImage.Webcam(224, 224, flip);
-        await webcam.setup({ facingMode: "environment" }); // Use rear-facing camera on iOS
+        await webcam.setup({ facingMode: "environment" });
         await webcam.play();
         
         const container = document.getElementById("webcam-container");
-        container.innerHTML = ""; // Clear existing placeholders
-
-        // iOS WebKit compatibility fix: Explicitly configure and append the inner video element
+        container.innerHTML = "";
         if (webcam.webcam) {
           webcam.webcam.setAttribute("playsinline", "true");
           webcam.webcam.setAttribute("autoplay", "true");
@@ -91,41 +84,38 @@
         document.getElementById("status").innerText = "Camera Active. Running AI...";
         window.requestAnimationFrame(loop);
       } catch (err) {
-        alert("Camera Initialization Error: Make sure you are using HTTPS and granted camera permission in iOS Settings. Details: " + err);
+        alert("Camera Error: " + err);
       }
     }
 
-      async function loop() {
-        await predict();
-        setTimeout(() => window.requestAnimationFrame(loop), 2000);
-      }
+    async function loop() {
+      await predict();
+      // 2-second delay interval to give iOS Bluetooth breathing room
+      setTimeout(() => window.requestAnimationFrame(loop), 2000);
+    }
 
-    // 3. Run predictions and communicate result over Bluetooth UART safely
-        async function predict() {
-          try {
-            if (!model || !webcam) return;
-            
-            webcam.update();
-            const predictions = await model.predict(webcam.canvas);
-            let topPrediction = predictions[0]; 
-        
-            document.getElementById("label-container").innerText = 
-              `${topPrediction.className}: ${(topPrediction.probability * 100).toFixed(1)}%`;
-        
-            if (rxCharacteristic && device && device.gatt.connected) {
-              const encoder = new TextEncoder();
-              const command = topPrediction.probability > 0.60 ? "MATCH\n" : "NO_MATCH\n";
-              
-              await rxCharacteristic.writeValueWithoutResponse(encoder.encode(command));
-              document.getElementById("status").innerText = topPrediction.probability > 0.60 ? 
-                `Result: MATCH (${topPrediction.className})` : "Result: NO_MATCH Sent";
-            } else {
-              document.getElementById("status").innerText = "Status: BLE Link Dropped by iOS!";
-            }
-          } catch (err) {
-            console.error("Prediction error:", err);
-          }
+    async function predict() {
+      try {
+        if (!model || !webcam) return;
+        webcam.update();
+        const predictions = await model.predict(webcam.canvas);
+        let topPrediction = predictions[0]; 
+
+        document.getElementById("label-container").innerText = 
+          `${topPrediction.className}: ${(topPrediction.probability * 100).toFixed(1)}%`;
+
+        if (rxCharacteristic) {
+          const encoder = new TextEncoder();
+          const command = topPrediction.probability > 0.60 ? "MATCH\n" : "NO_MATCH\n";
+          await rxCharacteristic.writeValueWithoutResponse(encoder.encode(command));
+          
+          document.getElementById("status").innerText = topPrediction.probability > 0.60 ? 
+            `Result: MATCH (${topPrediction.className})` : "Result: NO_MATCH Sent";
         }
+      } catch (err) {
+        console.error("Prediction loop error:", err);
+      }
+    }
   </script>
 </body>
 </html>
