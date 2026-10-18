@@ -107,43 +107,45 @@
     }
 
     async function predict() {
-      try {
-        if (!model || !webcam) return;
-        webcam.update();
-        
-        const predictions = await model.predict(webcam.canvas);
-        
-        // FIX: Find the class with the highest probability across ALL classes
-        let topClass = null;
-        let highestProb = 0;
+          try {
+            if (!model || !webcam) return;
+            webcam.update();
+            
+            const predictions = await model.predict(webcam.canvas);
+            
+            let topClass = null;
+            let highestProb = 0;
 
-        for (let i = 0; i < maxPredictions; i++) {
-          if (predictions[i].probability > highestProb) {
-            highestProb = predictions[i].probability;
-            topClass = predictions[i].className;
+            for (let i = 0; i < maxPredictions; i++) {
+              if (predictions[i].probability > highestProb) {
+                highestProb = predictions[i].probability;
+                topClass = predictions[i].className;
+              }
+            }
+
+            const CONFIDENCE_THRESHOLD = 0.60;
+            let outputCommand = "NO_MATCH";
+
+            if (highestProb >= CONFIDENCE_THRESHOLD && topClass) {
+              outputCommand = topClass; 
+            }
+
+            document.getElementById("label-container").innerText = 
+              `${topClass}: ${(highestProb * 100).toFixed(1)}%`;
+
+            if (rxCharacteristic) {
+              const encoder = new TextEncoder();
+              
+              // FIX: Use writeValue instead of writeValueWithoutResponse for reliable iOS delivery
+              await rxCharacteristic.writeValue(encoder.encode(outputCommand + "\n"));
+              
+              document.getElementById("status").innerText = (outputCommand !== "NO_MATCH") ? 
+                `Result: MATCH (${outputCommand})` : "Result: NO_MATCH Sent";
+            }
+          } catch (err) {
+            console.error("Prediction loop error:", err);
           }
         }
-
-        const CONFIDENCE_THRESHOLD = 0.60;
-        let outputCommand = "NO_MATCH";
-
-        if (highestProb >= CONFIDENCE_THRESHOLD && topClass) {
-          outputCommand = topClass; // Send actual class name e.g. "Kudzu", "English Ivy", "Others"
-        }
-
-        document.getElementById("label-container").innerText = 
-          `${topClass}: ${(highestProb * 100).toFixed(1)}%`;
-
-        if (rxCharacteristic) {
-          const encoder = new TextEncoder();
-          await rxCharacteristic.writeValueWithoutResponse(encoder.encode(outputCommand + "\n"));
-          
-          document.getElementById("status").innerText = (outputCommand !== "NO_MATCH") ? 
-            `Result: MATCH (${outputCommand})` : "Result: NO_MATCH Sent";
-        }
-      } catch (err) {
-        console.error("Prediction loop error:", err);
-      }
     }
   </script>
 </body>
