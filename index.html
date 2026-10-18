@@ -1,157 +1,150 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SPIKE Prime Teachable Machine Bridge</title>
-    <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f9; }
-        button { padding: 12px 20px; font-size: 16px; margin: 10px; cursor: pointer; border-radius: 8px; border: none; background: #007aff; color: white; }
-        #webcam-container { margin: 20px auto; border-radius: 12px; overflow: hidden; width: 224px; height: 224px; background: #ddd; }
-        #status, #result { font-weight: bold; margin: 10px; font-size: 18px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SPIKE + Teachable Machine (Dynamic Multi-Class)</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f9; color: #333; }
+    #webcam-container { margin: 15px auto; display: flex; justify-content: center; align-items: center; }
+    #webcam-container video, #webcam-container canvas { border-radius: 12px; width: 100%; max-width: 280px; border: 3px solid #007aff; }
+    button { padding: 14px 24px; margin: 8px; font-size: 16px; border-radius: 8px; border: none; background: #007aff; color: white; font-weight: bold; cursor: pointer;}
+    #status { font-weight: bold; font-size: 1.1rem; margin-top: 15px; color: #007aff; }
+    #label-container { font-size: 1.2rem; font-weight: bold; margin-top: 10px; }
+  </style>
 </head>
 <body>
 
-    <h1>Robot Image Classifier</h1>
-    
-    <!-- Step Buttons -->
-    <div>
-        <button id="connectBtn" onclick="connectBluetooth()">1. Connect SPIKE Prime</button>
-        <br>
-        <button id="startCamBtn" onclick="initCamera()" disabled>2. Start iPhone Camera</button>
-    </div>
+  <h2>AI Robot Classifier</h2>
+  <button onclick="loadModelFirst()">1. Load AI Model</button>
+  <button onclick="connectBluetooth()">2. Connect Pybricks Hub</button>
+  <button onclick="startCamera()">3. Start Camera & Run AI</button>
 
-    <div id="status">Status: Disconnected</div>
-    <div id="webcam-container"></div>
-    <div id="result">Result: Waiting for capture...</div>
+  <div id="webcam-container"></div>
+  <div id="status">Status: Ready</div>
+  <div id="label-container">Model not loaded</div>
 
-    <!-- Load Teachable Machine dependencies -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <script>
+    const MODEL_URL = "https://teachablemachine.withgoogle.com/models/egUzLqDO3/";
+    let model, webcam, rxCharacteristic, maxPredictions;
 
-    <script>
-        // REPLACE WITH YOUR ACTUAL TEACHABLE MACHINE MODEL URL (must include trailing slash)
-        const URL = "https://teachablemachine.withgoogle.com/models/YOUR_MODEL_ID_HERE/";
+    // Step 1: Load Model and fetch all class names from metadata
+    async function loadModelFirst() {
+      try {
+        document.getElementById("status").innerText = "Loading AI Model...";
+        model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+        maxPredictions = model.getTotalClasses();
+        
+        const labels = model.getClassLabels();
+        document.getElementById("status").innerText = "Model Loaded Successfully!";
+        document.getElementById("label-container").innerText = `Classes: ${labels.join(", ")}`;
+      } catch (err) {
+        alert("Model Load Error: " + err);
+      }
+    }
 
-        let model, webcam, maxPredictions;
-        let bluetoothDevice, uartServer, rxCharacteristic, txCharacteristic;
+    // Step 2: Connect Bluetooth
+    async function connectBluetooth() {
+      try {
+        document.getElementById("status").innerText = "Searching for Hub...";
+        
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
+        });
+        
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+        
+        rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
+        const txCharacteristic = await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+        
+        await txCharacteristic.startNotifications();
+        txCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+          const decoder = new TextDecoder();
+          console.log("Hub says: ", decoder.decode(event.target.value));
+        });
+        
+        document.getElementById("status").innerText = "Status: Connected & Locked!";
+        document.getElementById("label-container").innerText = "Hub linked successfully!";
+      } catch (err) {
+        alert("Bluetooth Connection Error: " + err);
+        document.getElementById("status").innerText = "Status: Disconnected";
+      }
+    }
 
-        // Nordic UART Service UUIDs used by Pybricks
-        const NORDIC_UART_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-        const NORDIC_UART_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // Web -> Hub
-        const NORDIC_UART_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // Hub -> Web
+    // Step 3: Start Camera
+    async function startCamera() {
+      try {
+        document.getElementById("status").innerText = "Starting Camera...";
+        const flip = true;
+        webcam = new tmImage.Webcam(224, 224, flip);
+        await webcam.setup({ facingMode: "environment" });
+        await webcam.play();
+        
+        const container = document.getElementById("webcam-container");
+        container.innerHTML = "";
+        if (webcam.webcam) {
+          webcam.webcam.setAttribute("playsinline", "true");
+          webcam.webcam.setAttribute("autoplay", "true");
+          container.appendChild(webcam.webcam);
+        } else {
+          container.appendChild(webcam.canvas);
+        }
+        
+        document.getElementById("status").innerText = "Camera Active. Running AI...";
+        window.requestAnimationFrame(loop);
+      } catch (err) {
+        alert("Camera Error: " + err);
+      }
+    }
 
-        // 1. Connect to SPIKE Prime via Web Bluetooth
-        async function connectBluetooth() {
-            try {
-                document.getElementById('status').innerText = "Connecting to SPIKE Prime...";
-                
-                bluetoothDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'Pybricks' }, { namePrefix: 'Hub' }],
-                    optionalServices: [NORDIC_UART_SERVICE]
-                });
+    async function loop() {
+      await predict();
+      setTimeout(() => window.requestAnimationFrame(loop), 2000);
+    }
 
-                const server = await bluetoothDevice.gatt.connect();
-                const service = await server.getPrimaryService(NORDIC_UART_SERVICE);
-                
-                rxCharacteristic = await service.getCharacteristic(NORDIC_UART_RX);
-                txCharacteristic = await service.getCharacteristic(NORDIC_UART_TX);
+    async function predict() {
+      try {
+        if (!model || !webcam) return;
+        webcam.update();
+        
+        const predictions = await model.predict(webcam.canvas);
+        
+        // FIX: Find the class with the highest probability across ALL classes
+        let topClass = null;
+        let highestProb = 0;
 
-                await txCharacteristic.startNotifications();
-                txCharacteristic.addEventListener('characteristicvaluechanged', handleIncomingMessage);
-
-                document.getElementById('status').innerText = "SPIKE Prime Connected!";
-                document.getElementById('startCamBtn').disabled = false;
-                console.log("Bluetooth Connected Successfully");
-
-            } catch (error) {
-                console.error("Bluetooth connection failed:", error);
-                document.getElementById('status').innerText = "Connection Failed: " + error;
-            }
+        for (let i = 0; i < maxPredictions; i++) {
+          if (predictions[i].probability > highestProb) {
+            highestProb = predictions[i].probability;
+            topClass = predictions[i].className;
+          }
         }
 
-        // 2. Initialize Teachable Machine Model & Webcam
-        async function initCamera() {
-            try {
-                document.getElementById('status').innerText = "Loading Teachable Machine Model...";
-                
-                const modelURL = URL + "model.json";
-                const metadataURL = URL + "metadata.json";
+        const CONFIDENCE_THRESHOLD = 0.60;
+        let outputCommand = "NO_MATCH";
 
-                // Load model and metadata dynamically to get ALL class names
-                model = await tmImage.load(modelURL, metadataURL);
-                maxPredictions = model.getTotalClasses();
-                
-                const classLabels = model.getClassLabels();
-                console.log("Successfully loaded classes from model metadata:", classLabels);
-                document.getElementById('status').innerText = `Model Loaded! Classes: ${classLabels.join(', ')}`;
-
-                // Setup webcam feed optimized for mobile/iPhone
-                webcam = new tmImage.Webcam(224, 224, true); // true for front camera, false for rear
-                await webcam.setup(); 
-                await webcam.play();
-                window.requestAnimationFrame(loop);
-
-                // Append webcam to DOM
-                document.getElementById('webcam-container').innerHTML = "";
-                document.getElementById('webcam-container').appendChild(webcam.canvas);
-
-            } catch (error) {
-                console.error("Camera/Model initialization error:", error);
-                document.getElementById('status').innerText = "Camera Error: Check iOS Permissions.";
-            }
+        if (highestProb >= CONFIDENCE_THRESHOLD && topClass) {
+          outputCommand = topClass; // Send actual class name e.g. "Kudzu", "English Ivy", "Others"
         }
 
-        async function loop() {
-            webcam.update();
-            window.requestAnimationFrame(loop);
+        document.getElementById("label-container").innerText = 
+          `${topClass}: ${(highestProb * 100).toFixed(1)}%`;
+
+        if (rxCharacteristic) {
+          const encoder = new TextEncoder();
+          await rxCharacteristic.writeValueWithoutResponse(encoder.encode(outputCommand + "\n"));
+          
+          document.getElementById("status").innerText = (outputCommand !== "NO_MATCH") ? 
+            `Result: MATCH (${outputCommand})` : "Result: NO_MATCH Sent";
         }
-
-        // 3. Handle incoming data ("CAPTURE") sent from the SPIKE Prime hub
-        function handleIncomingMessage(event) {
-            const decoder = new TextDecoder();
-            const message = decoder.decode(event.target.value).trim();
-            console.log("Received from Hub:", message);
-
-            if (message === "CAPTURE") {
-                runPredictionAndRespond();
-            }
-        }
-
-        // 4. Run classification on the current webcam frame and send result back
-        async function runPredictionAndRespond() {
-            if (!model || !webcam) return;
-
-            // Predict current frame against all loaded classes
-            const predictions = await model.predict(webcam.canvas);
-            
-            let topPrediction = "NO_MATCH";
-            let highestProbability = 0;
-            const CONFIDENCE_THRESHOLD = 0.75; // 75% accuracy threshold
-
-            for (let i = 0; i < maxPredictions; i++) {
-                if (predictions[i].probability > highestProbability) {
-                    highestProbability = predictions[i].probability;
-                    topPrediction = predictions[i].className;
-                }
-            }
-
-            // If confidence is below threshold, send NO_MATCH
-            if (highestProbability < CONFIDENCE_THRESHOLD) {
-                topPrediction = "NO_MATCH";
-            }
-
-            document.getElementById('result').innerText = `Result: ${topPrediction} (${(highestProbability * 100).toFixed(1)}%)`;
-            console.log(`Sending response to hub: ${topPrediction}`);
-
-            // Send result string back to SPIKE Prime over BLE
-            if (rxCharacteristic) {
-                const encoder = new TextEncoder();
-                const data = encoder.encode(topPrediction + "\n");
-                await rxCharacteristic.writeValue(data);
-            }
-        }
-    </script>
+      } catch (err) {
+        console.error("Prediction loop error:", err);
+      }
+    }
+  </script>
 </body>
 </html>
