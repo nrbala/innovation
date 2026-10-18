@@ -28,7 +28,7 @@
 
   <script>
     const MODEL_URL = "https://teachablemachine.withgoogle.com/models/egUzLqDO3/";
-    let model, webcam, rxCharacteristic, maxPredictions;
+    let model, webcam, rxCharacteristic, maxPredictions, bluetoothDevice;
 
     // Step 1: Load Model and fetch all class names from metadata
     async function loadModelFirst() {
@@ -45,42 +45,41 @@
       }
     }
 
-    // Step 2: Connect Bluetooth
-    let bluetoothDevice, rxCharacteristic;
-    
+    // Step 2: Connect Bluetooth & listen for hub requests
     async function connectBluetooth() {
-        try {
-            document.getElementById("status").innerText = "Searching for Hub...";
-            
-            // Request Pybricks Hub
-            bluetoothDevice = await navigator.bluetooth.requestDevice({
-                filters: [{ namePrefix: 'Pybricks' }, { namePrefix: 'Hub' }],
-                optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
-            });
-            
-            const server = await bluetoothDevice.gatt.connect();
-            const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
-            
-            // Grab RX (Web -> Hub) and TX (Hub -> Web)
-            rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
-            const txCharacteristic = await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
-            
-            await txCharacteristic.startNotifications();
-            txCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
-                const decoder = new TextDecoder();
-                const msg = decoder.decode(event.target.value).trim();
-                console.log("Hub sent:", msg);
-                
-                // If hub sent "CAPTURE", trigger AI prediction automatically!
-                if (msg === "CAPTURE") {
-                    runPredictionAndRespond();
-                }
-            });
-            
-            document.getElementById("status").innerText = "Connected to Hub via Chrome!";
-        } catch (err) {
-            alert("Bluetooth Error: " + err);
-        }
+      try {
+        document.getElementById("status").innerText = "Searching for Hub...";
+        
+        bluetoothDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'Pybricks' }, { namePrefix: 'Hub' }],
+          optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
+        });
+        
+        const server = await bluetoothDevice.gatt.connect();
+        const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+        
+        // Grab RX (Web -> Hub) and TX (Hub -> Web) characteristics
+        rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
+        const txCharacteristic = await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+        
+        await txCharacteristic.startNotifications();
+        txCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+          const decoder = new TextDecoder();
+          const msg = decoder.decode(event.target.value).trim();
+          console.log("Hub says: ", msg);
+          
+          // FIX: If hub sends "CAPTURE", run prediction immediately!
+          if (msg === "CAPTURE") {
+            predict();
+          }
+        });
+        
+        document.getElementById("status").innerText = "Status: Connected & Locked!";
+        document.getElementById("label-container").innerText = "Hub linked successfully!";
+      } catch (err) {
+        alert("Bluetooth Connection Error: " + err);
+        document.getElementById("status").innerText = "Status: Disconnected";
+      }
     }
 
     // Step 3: Start Camera
@@ -102,58 +101,51 @@
           container.appendChild(webcam.canvas);
         }
         
-        document.getElementById("status").innerText = "Camera Active. Running AI...";
-        window.requestAnimationFrame(loop);
+        document.getElementById("status").innerText = "Camera Active. Press Hub Button to Capture.";
       } catch (err) {
         alert("Camera Error: " + err);
       }
     }
 
-    async function loop() {
-      await predict();
-      setTimeout(() => window.requestAnimationFrame(loop), 2000);
-    }
-
+    // Predict function triggered upon hub request
     async function predict() {
-          try {
-            if (!model || !webcam) return;
-            webcam.update();
-            
-            const predictions = await model.predict(webcam.canvas);
-            
-            let topClass = null;
-            let highestProb = 0;
+      try {
+        if (!model || !webcam) return;
+        webcam.update();
+        
+        const predictions = await model.predict(webcam.canvas);
+        
+        let topClass = null;
+        let highestProb = 0;
 
-            for (let i = 0; i < maxPredictions; i++) {
-              if (predictions[i].probability > highestProb) {
-                highestProb = predictions[i].probability;
-                topClass = predictions[i].className;
-              }
-            }
-
-            const CONFIDENCE_THRESHOLD = 0.60;
-            let outputCommand = "NO_MATCH";
-
-            if (highestProb >= CONFIDENCE_THRESHOLD && topClass) {
-              outputCommand = topClass; 
-            }
-
-            document.getElementById("label-container").innerText = 
-              `${topClass}: ${(highestProb * 100).toFixed(1)}%`;
-
-            if (rxCharacteristic) {
-              const encoder = new TextEncoder();
-              
-              // FIX: Use writeValue instead of writeValueWithoutResponse for reliable iOS delivery
-              await rxCharacteristic.writeValue(encoder.encode(outputCommand + "\n"));
-              
-              document.getElementById("status").innerText = (outputCommand !== "NO_MATCH") ? 
-                `Result: MATCH (${outputCommand})` : "Result: NO_MATCH Sent";
-            }
-          } catch (err) {
-            console.error("Prediction loop error:", err);
+        for (let i = 0; i < maxPredictions; i++) {
+          if (predictions[i].probability > highestProb) {
+            highestProb = predictions[i].probability;
+            topClass = predictions[i].className;
           }
         }
+
+        const CONFIDENCE_THRESHOLD = 0.60;
+        let outputCommand = "NO_MATCH";
+
+        if (highestProb >= CONFIDENCE_THRESHOLD && topClass) {
+          outputCommand = topClass; 
+        }
+
+        document.getElementById("label-container").innerText = 
+          `${topClass}: ${(highestProb * 100).toFixed(1)}%`;
+
+        if (rxCharacteristic) {
+          const encoder = new TextEncoder();
+          await rxCharacteristic.writeValue(encoder.encode(outputCommand + "\n"));
+          
+          document.getElementById("status").innerText = (outputCommand !== "NO_MATCH") ? 
+            `Result: MATCH (${outputCommand})` : "Result: NO_MATCH Sent";
+        }
+      } catch (err) {
+        console.error("Prediction loop error:", err);
+      }
+    }
   </script>
 </body>
 </html>
