@@ -63,14 +63,20 @@
                 model = await tmImage.load(URL + "model.json", URL + "metadata.json");
                 maxPredictions = model.getTotalClasses();
                 
-                document.getElementById("status").innerText = "Scanning for Pybricks Hub...";
+                document.getElementById("status").innerText = "Select your Pybricks Hub...";
+                
+                // acceptAllDevices: true ensures the hub shows up even if it's at the menu
                 bluetoothDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: "Pybricks" }],
+                    acceptAllDevices: true,
                     optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
                 });
 
+                document.getElementById("status").innerText = "Connecting to GATT Server...";
                 const server = await bluetoothDevice.gatt.connect();
+                
+                document.getElementById("status").innerText = "Getting UART Service...";
                 const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
+                
                 uartCharacteristic = await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
 
                 const rxCharacteristic = await service.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
@@ -79,7 +85,8 @@
 
                 document.getElementById("status").innerText = "Model Loaded & Hub Connected!";
             } catch (err) {
-                document.getElementById("status").innerText = "Error: " + err;
+                document.getElementById("status").innerText = "BT Error: " + err.message;
+                console.error(err);
             }
         }
 
