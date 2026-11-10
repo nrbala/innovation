@@ -59,13 +59,9 @@
 
         async function loadModelAndInit() {
             try {
-                document.getElementById("status").innerText = "Loading AI Model (f8py7VUd2)...";
-                model = await tmImage.load(URL + "model.json", URL + "metadata.json");
-                maxPredictions = model.getTotalClasses();
+                // 1. TRIGGER BLUETOOTH IMMEDIATELY (Must happen first for iOS user gesture rules)
+                document.getElementById("status").innerText = "Scanning for Pybricks Hub...";
                 
-                document.getElementById("status").innerText = "Select your Pybricks Hub...";
-                
-                // acceptAllDevices: true ensures the hub shows up even if it's at the menu
                 bluetoothDevice = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
                     optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
@@ -83,9 +79,14 @@
                 await rxCharacteristic.startNotifications();
                 rxCharacteristic.addEventListener('characteristicvaluechanged', handleHubMessage);
 
-                document.getElementById("status").innerText = "Model Loaded & Hub Connected!";
+                // 2. LOAD AI MODEL AFTER BLUETOOTH IS CONNECTED
+                document.getElementById("status").innerText = "Loading AI Model (f8py7VUd2)...";
+                model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+                maxPredictions = model.getTotalClasses();
+
+                document.getElementById("status").innerText = "Hub Connected & Model Loaded!";
             } catch (err) {
-                document.getElementById("status").innerText = "BT Error: " + err.message;
+                document.getElementById("status").innerText = "Error: " + err.message;
                 console.error(err);
             }
         }
