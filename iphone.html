@@ -157,7 +157,6 @@
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
     <script type="text/javascript">
-        // Updated Teachable Machine model URL with new ID f8py7VUd2s
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/f8py7VUd2s/";
         
         let model, webcam, peer, conn;
@@ -177,14 +176,14 @@
             try {
                 model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
 
-                const flip = false;
-                webcam = new tmImage.Webcam(400, 400, flip);
+                // Use flexible width/height matching container and standard environment facingMode
+                const width = window.innerWidth;
+                const height = window.innerHeight * 0.9;
+                webcam = new tmImage.Webcam(width, height, false);
                 
-                await webcam.setup({ facingMode: { exact: "environment" } }).catch(async () => {
-                    await webcam.setup({ facingMode: "environment" });
-                });
-
+                await webcam.setup({ facingMode: "environment" });
                 await webcam.play();
+                
                 document.getElementById("webcam-container").appendChild(webcam.canvas);
 
                 window.requestAnimationFrame(loop);
