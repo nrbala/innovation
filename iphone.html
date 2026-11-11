@@ -2,224 +2,109 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robot Eye Broadcaster (iPhone)</title>
-    <!-- Tailwind CSS for UI styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- PeerJS for seamless WebRTC P2P Video + Data Channel without needing custom backend -->
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <!-- TensorFlow.js and Teachable Machine Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-</head>
-<body class="bg-slate-900 text-slate-100 font-sans min-h-screen flex flex-col items-center p-4">
-
-    <!-- Main Container -->
-    <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-2xl p-4 border border-slate-700 flex flex-col gap-4">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>BioScan Transmitter</title>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        #webcam-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        #webcam-container canvas, #webcam-container video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
         
-        <!-- Header -->
-        <div class="flex items-center justify-between border-b border-slate-700 pb-3">
-            <div>
-                <h1 class="font-bold text-xl text-amber-400">SPIKE Vision Transmitter</h1>
-                <p class="text-xs text-slate-400">Teachable Machine AI + WebRTC Stream</p>
-            </div>
-            <div id="status-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Initializing...
-            </div>
-        </div>
+        /* Floating bottom HUD for room code */
+        .hud-bottom {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 12px 24px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            color: #fff;
+        }
+        .hud-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: #aaa; }
+        #room-code { font-size: 1.4rem; font-weight: bold; letter-spacing: 3px; color: #00ffcc; font-family: monospace; }
+    </style>
+</head>
+<body>
 
-        <!-- Connection Info / Peer ID display -->
-        <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700 flex flex-col gap-2">
-            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Broadcaster Room ID</span>
-            <div class="flex items-center gap-2">
-                <input id="room-code-input" type="text" readonly value="----" 
-                    class="bg-slate-950 text-amber-400 font-mono text-center text-3xl tracking-widest font-extrabold w-full py-2 px-3 rounded-lg border border-slate-800 select-all">
-                <button id="copy-btn" onclick="copyRoomCode()" class="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 px-4 py-3 rounded-lg text-xs font-medium border border-slate-700">
-                    Copy
-                </button>
-            </div>
-            <p class="text-[11px] text-slate-400 text-center">Enter this 4-digit code in laptop.html to connect.</p>
-        </div>
-            <p class="text-[11px] text-slate-400">Enter this Room ID on laptop.html to pair video and telemetry instantly.</p>
-        </div>
+    <div id="webcam-container"></div>
 
-        <!-- Camera Preview Container -->
-        <div class="relative w-full aspect-square bg-black rounded-xl overflow-hidden border border-slate-700 shadow-inner flex items-center justify-center">
-            <!-- Hidden Canvas for Teachable Machine capture -->
-            <div id="webcam-container" class="w-full h-full"></div>
-            
-            <!-- Live Detection Overlay Badge -->
-            <div class="absolute bottom-3 left-3 right-3 bg-slate-950/85 backdrop-blur-md p-3 rounded-xl border border-slate-700/80 flex items-center justify-between">
-                <div>
-                    <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Top Detection</div>
-                    <div id="top-label" class="font-bold text-lg text-slate-200">Loading Model...</div>
-                </div>
-                <div id="top-confidence" class="text-xl font-extrabold text-amber-400 font-mono">
-                    --%
-                </div>
-            </div>
-        </div>
-
-        <!-- Camera & Stream Control Bar -->
-        <div class="grid grid-cols-2 gap-2">
-            <button id="flip-cam-btn" onclick="toggleCamera()" class="bg-slate-700 hover:bg-slate-600 active:bg-slate-500 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                Switch Camera
-            </button>
-            <button id="reconnect-btn" onclick="initPeer()" class="bg-amber-600 hover:bg-amber-500 active:bg-amber-700 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2">
-                Reset Connection
-            </button>
-        </div>
-
+    <div class="hud-bottom">
+        <span class="hud-label">Room ID:</span>
+        <span id="room-code">----</span>
     </div>
 
-    <!-- Application Script Logic -->
+    <!-- Load TensorFlow.js, Teachable Machine, and PeerJS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+
     <script type="text/javascript">
-        // Teachable Machine Model URL
-        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/f8py7VUd2/";
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/WIpR1ZP5s/";
+        
+        let model, webcam, peer, conn;
+        const roomCode = Math.floor(1000 + Math.random() * 9000);
+        document.getElementById('room-code').innerText = roomCode;
 
-        let model, webcam, peer, dataConnection, mediaCall;
-        let roomCode = null;
-        let isFrontFacing = false;
-        let isModelReady = false;
-
-        // Initialize App on Page Load
-        window.addEventListener('load', async () => {
-            await setupCameraAndModel();
-            initPeer();
-        });
-
-        // Initialize Teachable Machine & Camera
-        async function setupCameraAndModel() {
-            const statusBadge = document.getElementById("status-badge");
+        async function init() {
             try {
-                statusBadge.innerText = "Loading AI Model...";
-                const modelURL = MODEL_URL + "model.json";
-                const metadataURL = MODEL_URL + "metadata.json";
+                // Load Teachable Machine model
+                model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
 
-                model = await tmImage.load(modelURL, metadataURL);
-                
-                // Initialize Mobile Camera
-                const flip = isFrontFacing;
-                webcam = new tmImage.Webcam(400, 400, flip);
-                
-                // Explicitly request environment (rear) camera on mobile
-                await webcam.setup({ facingMode: isFrontFacing ? "user" : "environment" });
+                // Setup full screen mobile camera (rear camera preference)
+                webcam = new tmImage.Webcam(window.innerWidth, window.innerHeight, true);
+                await webcam.setup({ facingMode: "environment" });
                 await webcam.play();
-
-                const webcamContainer = document.getElementById("webcam-container");
-                webcamContainer.innerHTML = "";
-                webcamContainer.appendChild(webcam.canvas);
                 
-                // Ensure canvas fills container responsively
-                webcam.canvas.className = "w-full h-full object-cover rounded-xl";
-
-                isModelReady = true;
-                statusBadge.innerText = "Model Ready";
-                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
-
-                // Start prediction loop
-                window.requestAnimationFrame(predictLoop);
-
-            } catch (err) {
-                console.error("Camera/Model setup error:", err);
-                statusBadge.innerText = "Camera Error";
-                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30";
-            }
-        }
-
-        // Toggle Camera (Front / Rear)
-        async function toggleCamera() {
-            isFrontFacing = !isFrontFacing;
-            if (webcam) {
-                webcam.stop();
-            }
-            await setupCameraAndModel();
-            // Re-bind media stream to existing peer calls if active
-            if (mediaCall && webcam.webcam.srcObject) {
-                // Refresh stream for connected laptop
-                initPeer();
-            }
-        }
-
-        // Initialize PeerJS P2P Networking
-        function initPeer() {
-            // Generate a random 4-digit numeric Room ID
-            roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-            const peerId = "spike-robot-" + roomCode;
-            
-            if (peer) {
-                peer.destroy();
-            }
-
-            peer = new Peer(peerId);
-
-            peer.on('open', () => {
-                document.getElementById('room-code-input').value = roomCode;
-            });
-
-            // Handle incoming WebRTC Data + Video connections from laptop
-            peer.on('connection', (conn) => {
-                dataConnection = conn;
-                document.getElementById("status-badge").innerText = "Laptop Connected";
-                document.getElementById("status-badge").className = "px-3 py-1 rounded-full text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30";
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
                 
-                conn.on('close', () => {
-                    document.getElementById("status-badge").innerText = "Laptop Disconnected";
-                    document.getElementById("status-badge").className = "px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30";
+                // Initialize PeerJS broadcaster
+                peer = new Peer(`bioscan-${roomCode}`);
+                peer.on('connection', (connection) => {
+                    conn = connection;
+                    setupDataConnection();
                 });
-            });
 
-            peer.on('call', (call) => {
-                mediaCall = call;
-                // Answer incoming video request with the live mobile camera stream
-                if (webcam && webcam.webcam && webcam.webcam.srcObject) {
-                    call.answer(webcam.webcam.srcObject);
-                }
-            });
-
-            peer.on('error', (err) => {
-                console.error("PeerJS error:", err);
-            });
-        }
-
-        // Prediction Loop & Real-Time Data Streaming
-        async function predictLoop() {
-            if (isModelReady && webcam) {
-                webcam.update();
-                const predictions = await model.predict(webcam.canvas);
-                
-                // Find prediction with highest confidence
-                let topPrediction = predictions.reduce((prev, current) => 
-                    (prev.probability > current.probability) ? prev : current
-                );
-
-                const labelText = topPrediction.className;
-                const confidencePct = (topPrediction.probability * 100).toFixed(1);
-
-                // Update UI Overlay
-                document.getElementById("top-label").innerText = labelText;
-                document.getElementById("top-confidence").innerText = `${confidencePct}%`;
-
-                // Stream top prediction telemetry over WebRTC DataChannel to laptop
-                if (dataConnection && dataConnection.open) {
-                    dataConnection.send({
-                        timestamp: Date.now(),
-                        topClass: labelText,
-                        probability: topPrediction.probability,
-                        allClasses: predictions.map(p => ({ class: p.className, prob: p.probability }))
-                    });
-                }
+                window.requestAnimationFrame(loop);
+            } catch (err) {
+                console.error("Initialization error:", err);
             }
-            window.requestAnimationFrame(predictLoop);
         }
 
-        // Clipboard Copy Utility
-        function copyRoomCode() {
-            const input = document.getElementById("room-code-input");
-            input.select();
-            document.execCommand('copy');
+        function setupDataConnection() {
+            conn.on('open', () => {
+                console.log("Laptop connected successfully");
+            });
         }
+
+        async function loop() {
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            let best = prediction.reduce((prev, current) => (prev.probability > current.probability) ? prev : current);
+            
+            // Transmit results to laptop if connected
+            if (conn && conn.open) {
+                conn.send({
+                    class: best.className,
+                    probability: best.probability,
+                    timestamp: Date.now()
+                });
+            }
+        }
+
+        window.addEventListener('load', init);
     </script>
 </body>
 </html>
