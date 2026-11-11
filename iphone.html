@@ -14,7 +14,6 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
         }
         
-        /* Strict Flex Container locked to dynamic viewport */
         .app-container {
             display: flex;
             flex-direction: column;
@@ -22,7 +21,6 @@
             height: 100dvh;
         }
 
-        /* Top Header */
         .header {
             height: 44px;
             background: #000;
@@ -37,16 +35,17 @@
             z-index: 10;
         }
 
-        /* Camera Section - Takes remaining flexible space */
         .camera-viewport { 
             flex: 1;
             position: relative; 
             background: #111;
             width: 100vw;
             overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
-        /* Force canvas/video to fill container */
         .camera-viewport canvas, .camera-viewport video { 
             position: absolute;
             top: 0;
@@ -56,7 +55,19 @@
             object-fit: cover !important; 
         }
 
-        /* On-Screen Telemetry Overlay */
+        #start-btn {
+            z-index: 20;
+            background: #00ffcc;
+            color: #000;
+            border: none;
+            padding: 14px 28px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 255, 204, 0.4);
+        }
+
         .prediction-overlay {
             position: absolute;
             top: 12px;
@@ -78,7 +89,6 @@
         .class-name { font-size: 1rem; font-weight: bold; color: #00ffcc; }
         .confidence { font-size: 0.95rem; font-family: monospace; color: #fff; }
 
-        /* Bottom Room ID HUD - Fixed height to guarantee visibility */
         .hud-bottom {
             height: 65px;
             width: 100vw;
@@ -123,19 +133,17 @@
 <body>
 
     <div class="app-container">
-        <!-- Top Title -->
         <div class="header">BioScan Transmitter</div>
 
-        <!-- Camera Container -->
         <div class="camera-viewport" id="webcam-container">
-            <!-- Model Live Telemetry Overlay -->
+            <button id="start-btn" onclick="startCamera()">Start Camera</button>
+            
             <div class="prediction-overlay">
-                <span class="class-name" id="detected-class">Initializing Model...</span>
+                <span class="class-name" id="detected-class">Tap Start Camera</span>
                 <span class="confidence" id="detected-confidence">0%</span>
             </div>
         </div>
 
-        <!-- Bottom Room ID HUD -->
         <div class="hud-bottom">
             <div class="hud-card">
                 <div class="hud-label">ROOM<br>ID:</div>
@@ -144,43 +152,45 @@
         </div>
     </div>
 
-    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
     <script type="text/javascript">
+        // Updated Teachable Machine model URL with new ID f8py7VUd2s
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/f8py7VUd2s/";
         
         let model, webcam, peer, conn;
 
-        // Generate 4-digit code immediately on load
         const roomCode = Math.floor(1000 + Math.random() * 9000);
         document.getElementById('room-code').innerText = roomCode;
 
-        async function init() {
-            try {
-                // Initialize PeerJS broadcaster
-                peer = new Peer(`bioscan-${roomCode}`);
-                peer.on('connection', (connection) => {
-                    conn = connection;
-                });
+        peer = new Peer(`bioscan-${roomCode}`);
+        peer.on('connection', (connection) => {
+            conn = connection;
+        });
 
-                // Load Teachable Machine model
+        async function startCamera() {
+            document.getElementById("start-btn").style.display = "none";
+            document.getElementById("detected-class").innerText = "Loading Model...";
+
+            try {
                 model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
 
-                // Setup camera stream
                 const flip = false;
                 webcam = new tmImage.Webcam(400, 400, flip);
-                await webcam.setup({ facingMode: "environment" });
-                await webcam.play();
                 
+                await webcam.setup({ facingMode: { exact: "environment" } }).catch(async () => {
+                    await webcam.setup({ facingMode: "environment" });
+                });
+
+                await webcam.play();
                 document.getElementById("webcam-container").appendChild(webcam.canvas);
 
                 window.requestAnimationFrame(loop);
             } catch (err) {
-                console.error("Initialization error:", err);
-                document.getElementById("detected-class").innerText = "Camera Error";
+                console.error("Camera Error:", err);
+                document.getElementById("detected-class").innerText = "Camera Access Denied";
             }
         }
 
@@ -195,11 +205,9 @@
             const prediction = await model.predict(webcam.canvas);
             let best = prediction.reduce((prev, current) => (prev.probability > current.probability) ? prev : current);
             
-            // Update on-screen telemetry
             document.getElementById("detected-class").innerText = best.className;
             document.getElementById("detected-confidence").innerText = `${(best.probability * 100).toFixed(0)}%`;
 
-            // Transmit results to laptop
             if (conn && conn.open) {
                 conn.send({
                     class: best.className,
@@ -208,8 +216,6 @@
                 });
             }
         }
-
-        window.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>
