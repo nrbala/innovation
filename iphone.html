@@ -15,58 +15,57 @@
         }
         
         .app-container {
-            display: flex;
-            flex-direction: column;
+            position: relative;
             width: 100vw;
             height: 100dvh;
-            padding-top: env(safe-area-inset-top);
+            background: #000;
+            overflow: hidden;
+        }
+
+        /* Full Screen Camera Layer filling entire background */
+        #webcam-container { 
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100dvh;
+            z-index: 1;
+            background: #000;
+        }
+        
+        #webcam-container canvas, #webcam-container video { 
+            width: 100% !important; 
+            height: 100% !important; 
+            object-fit: cover !important; 
         }
 
         /* Top Header */
         .header {
-            height: 44px;
-            background: rgba(0, 0, 0, 0.85);
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             color: #fff;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.95rem;
+            font-size: 1rem;
             font-weight: 600;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            flex-shrink: 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
             z-index: 10;
-        }
-
-        /* Full Screen Camera Viewport */
-        .camera-viewport { 
-            flex: 1;
-            position: relative; 
-            background: #000;
-            width: 100vw;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        /* Force Teachable Machine canvas and video to fill the screen edge-to-edge */
-        .camera-viewport canvas, .camera-viewport video { 
-            position: absolute !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;
-            min-width: 100% !important; 
-            min-height: 100% !important; 
-            width: auto !important;
-            height: auto !important;
-            object-fit: cover !important; 
         }
 
         /* Start Button Overlay */
         #start-btn {
-            z-index: 20;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 30;
             background: #00ffcc;
             color: #000;
             border: none;
@@ -75,60 +74,62 @@
             font-weight: 700;
             border-radius: 30px;
             cursor: pointer;
-            box-shadow: 0 4px 20px rgba(0, 255, 204, 0.5);
+            box-shadow: 0 4px 20px rgba(0, 255, 204, 0.6);
         }
 
         /* Live Telemetry Overlay */
         .prediction-overlay {
             position: absolute;
-            top: 16px;
+            top: 65px;
             left: 16px;
             right: 16px;
-            background: rgba(0, 0, 0, 0.75);
+            background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             padding: 10px 16px;
             border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.25);
             color: #fff;
-            z-index: 5;
+            z-index: 10;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
-        .class-name { font-size: 1rem; font-weight: bold; color: #00ffcc; }
-        .confidence { font-size: 0.95rem; font-family: monospace; color: #fff; }
+        .class-name { font-size: 1.1rem; font-weight: bold; color: #00ffcc; }
+        .confidence { font-size: 1rem; font-family: monospace; color: #fff; }
 
-        /* Bottom HUD Area with iPhone 15 Pro Safe Area padding */
+        /* Bottom Room ID HUD pinned cleanly to the bottom edge */
         .hud-bottom {
-            height: 70px;
-            width: 100vw;
-            background: rgba(0, 0, 0, 0.9);
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 75px;
+            background: rgba(0, 0, 0, 0.85);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             display: flex;
             align-items: center;
             justify-content: center;
-            flex-shrink: 0;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
             z-index: 10;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
             padding-bottom: env(safe-area-inset-bottom);
         }
 
         .hud-card {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 6px 20px;
+            background: rgba(255, 255, 255, 0.12);
+            padding: 8px 22px;
             border-radius: 20px;
             display: flex;
             align-items: center;
             gap: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
             color: #fff;
         }
 
         .hud-label { 
-            font-size: 0.65rem; 
+            font-size: 0.7rem; 
             text-transform: uppercase; 
             letter-spacing: 1px; 
             color: #aaa; 
@@ -147,9 +148,11 @@
 <body>
 
     <div class="app-container">
+        <!-- Top Header -->
         <div class="header" id="header-title">BioScan Transmitter</div>
 
-        <div class="camera-viewport" id="webcam-container">
+        <!-- Fullscreen Camera Container -->
+        <div id="webcam-container">
             <button id="start-btn" onclick="startCamera()">Start Camera</button>
             
             <div class="prediction-overlay">
@@ -158,6 +161,7 @@
             </div>
         </div>
 
+        <!-- Bottom Room ID HUD -->
         <div class="hud-bottom">
             <div class="hud-card">
                 <div class="hud-label">ROOM<br>ID:</div>
@@ -211,10 +215,8 @@
             try {
                 model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
 
-                // Match screen dimensions for the iPhone 15 Pro viewport
-                const width = window.innerWidth;
-                const height = window.innerHeight;
-                webcam = new tmImage.Webcam(width, height, false);
+                // Full viewport canvas sizing
+                webcam = new tmImage.Webcam(window.innerWidth, window.innerHeight, false);
                 
                 await webcam.setup({ facingMode: "environment" });
                 await webcam.play();
