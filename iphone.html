@@ -6,19 +6,25 @@
     <title>BioScan Transmitter</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        html, body { 
+            width: 100%; 
+            height: 100dvh; 
+            background: #000; 
+            overflow: hidden; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        }
         
-        /* Flex Layout Container */
+        /* Strict Flex Container locked to dynamic viewport */
         .app-container {
             display: flex;
             flex-direction: column;
             width: 100vw;
-            height: 100vh;
+            height: 100dvh;
         }
 
         /* Top Header */
         .header {
-            height: 40px;
+            height: 44px;
             background: #000;
             color: #fff;
             display: flex;
@@ -28,9 +34,10 @@
             font-weight: 600;
             border-bottom: 1px solid rgba(255, 255, 255, 0.15);
             flex-shrink: 0;
+            z-index: 10;
         }
 
-        /* Camera Section - Fills available 90% space */
+        /* Camera Section - Takes remaining flexible space */
         .camera-viewport { 
             flex: 1;
             position: relative; 
@@ -39,7 +46,7 @@
             overflow: hidden;
         }
         
-        /* Force generated Canvas to strictly fill viewport */
+        /* Force canvas/video to fill container */
         .camera-viewport canvas, .camera-viewport video { 
             position: absolute;
             top: 0;
@@ -52,14 +59,14 @@
         /* On-Screen Telemetry Overlay */
         .prediction-overlay {
             position: absolute;
-            top: 15px;
-            left: 15px;
-            right: 15px;
-            background: rgba(0, 0, 0, 0.65);
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
-            padding: 10px 16px;
-            border-radius: 12px;
+            padding: 8px 14px;
+            border-radius: 10px;
             border: 1px solid rgba(255, 255, 255, 0.2);
             color: #fff;
             z-index: 5;
@@ -68,12 +75,12 @@
             align-items: center;
         }
 
-        .class-name { font-size: 1.1rem; font-weight: bold; color: #00ffcc; }
-        .confidence { font-size: 1rem; font-family: monospace; color: #fff; }
+        .class-name { font-size: 1rem; font-weight: bold; color: #00ffcc; }
+        .confidence { font-size: 0.95rem; font-family: monospace; color: #fff; }
 
-        /* Bottom HUD Area */
+        /* Bottom Room ID HUD - Fixed height to guarantee visibility */
         .hud-bottom {
-            height: 70px;
+            height: 65px;
             width: 100vw;
             background: #000;
             display: flex;
@@ -81,21 +88,23 @@
             justify-content: center;
             flex-shrink: 0;
             border-top: 1px solid rgba(255, 255, 255, 0.15);
+            z-index: 10;
+            padding-bottom: env(safe-area-inset-bottom);
         }
 
         .hud-card {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 8px 20px;
+            background: rgba(255, 255, 255, 0.12);
+            padding: 6px 18px;
             border-radius: 20px;
             display: flex;
             align-items: center;
-            gap: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            gap: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.25);
             color: #fff;
         }
 
         .hud-label { 
-            font-size: 0.7rem; 
+            font-size: 0.65rem; 
             text-transform: uppercase; 
             letter-spacing: 1px; 
             color: #aaa; 
@@ -103,7 +112,7 @@
         }
 
         #room-code { 
-            font-size: 1.4rem; 
+            font-size: 1.3rem; 
             font-weight: 700; 
             letter-spacing: 3px; 
             color: #00ffcc; 
@@ -141,7 +150,7 @@
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
     <script type="text/javascript">
-        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/WIpR1ZP5s/";
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/f8py7VUd2s/";
         
         let model, webcam, peer, conn;
 
@@ -160,8 +169,8 @@
                 // Load Teachable Machine model
                 model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
 
-                // Setup camera stream with fixed dimensions (CSS will scale it to fill container)
-                const flip = false; // set to false for rear camera
+                // Setup camera stream
+                const flip = false;
                 webcam = new tmImage.Webcam(400, 400, flip);
                 await webcam.setup({ facingMode: "environment" });
                 await webcam.play();
@@ -171,7 +180,7 @@
                 window.requestAnimationFrame(loop);
             } catch (err) {
                 console.error("Initialization error:", err);
-                document.getElementById("detected-class").innerText = "Camera Access Error";
+                document.getElementById("detected-class").innerText = "Camera Error";
             }
         }
 
