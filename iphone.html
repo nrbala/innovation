@@ -2,132 +2,134 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>iPhone AI Camera & Hub Bridge</title>
-
-    <!-- PeerJS for video/data streaming -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot iPhone AI Bridge</title>
+    <!-- Load TensorFlow.js and Teachable Machine Image libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <!-- Load PeerJS for video and telemetry relay to laptop -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-    <!-- TensorFlow.js and Teachable Machine Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, sans-serif; }
-        #webcam-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
-        #webcam-container canvas, #webcam-container video { width: 100vw !important; height: 100vh !important; object-fit: cover !important; }
-        .overlay-ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; box-sizing: border-box; pointer-events: none; }
-        .interactive { pointer-events: auto; }
-        h2 { color: #fff; background: rgba(0,0,0,0.65); padding: 10px; border-radius: 8px; margin: 0 auto; font-size: 18px; text-align: center; }
-        .bottom-section { background: rgba(0,0,0,0.85); padding: 15px; border-radius: 15px; display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 360px; margin: 0 auto; }
-        button { width: 100%; margin: 6px 0; padding: 14px; font-size: 15px; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #111; color: #fff; padding: 20px; text-align: center; }
+        button { background: #007aff; color: white; border: none; padding: 14px 20px; font-size: 16px; border-radius: 8px; margin: 10px 0; width: 100%; max-width: 320px; cursor: pointer; }
         button:active { background: #0056b3; }
-        #status { font-size: 13px; color: #ffeb3b; margin-bottom: 6px; font-weight: bold; text-align: center; }
-        #peer-id-display { color: #00ffcc; font-size: 13px; font-weight: bold; margin-top: 4px; text-align: center; }
+        #status { font-weight: bold; margin: 15px 0; color: #ff9500; }
+        #peer-id { font-size: 24px; color: #34c759; margin: 10px 0; font-family: monospace; }
+        video { width: 100%; max-width: 320px; border-radius: 8px; margin-top: 15px; background: #000; }
+        .log-box { background: #222; padding: 10px; border-radius: 6px; text-align: left; font-family: monospace; font-size: 12px; height: 100px; overflow-y: scroll; margin-top: 15px; }
     </style>
 </head>
 <body>
 
-    <div id="webcam-container"></div>
+    <h2>iPhone AI & UART Bridge</h2>
+    <div id="status">Status: Disconnected</div>
 
-    <div class="overlay-ui">
-        <div class="top-section interactive">
-            <h2>iPhone AI Camera Node</h2>
-        </div>
-        <div class="bottom-section interactive">
-            <div id="status">Status: Ready to connect</div>
-            <div id="peer-id-display">Generating Laptop Link ID...</div>
-            <button onclick="connectHubAndLoadModel()">1. Connect Pybricks Hub & Load AI</button>
-            <button onclick="startCameraAndStream()">2. Start Camera & Stream to Laptop</button>
-        </div>
+    <!-- Step 1: User gesture required for Web Bluetooth security -->
+    <button id="connect-btn" onclick="connectHubAndAI()">1. Connect Pybricks Hub & Load AI</button>
+
+    <!-- Step 2: Camera and PeerJS Setup -->
+    <button id="stream-btn" onclick="startCameraAndStream()" disabled>2. Start Camera & Stream to Laptop</button>
+
+    <div>
+        <h3>Laptop Link ID:</h3>
+        <div id="peer-id">Generating ID...</div>
     </div>
 
+    <div>
+        <video id="webcam" autoplay playsinline muted></video>
+    </div>
+
+    <div class="log-box" id="logs">System logs will appear here...</div>
+
     <script>
-        const TM_URL = "https://teachablemachine.withgoogle.com/models/f8py7VUd2/";
-        const NORDIC_UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-        const UART_TX_CHAR = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
-        const UART_RX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
-
+        const URL = "https://teachablemachine.withgoogle.com/models/f8py7VUd2/";
         let model, webcam, maxPredictions;
-        let bluetoothDevice, uartCharacteristic;
-        let peer, conn, localStream;
+        let bluetoothDevice, uartRxCharacteristic;
+        let peer, activeConnection;
+        let isRunning = false;
 
-        // Generate clean PeerJS ID
-        const shortId = Math.floor(1000 + Math.random() * 9000);
-        const peerId = "iphone-robot-cam-" + shortId;
-        peer = new Peer(peerId);
+        function log(msg) {
+            const box = document.getElementById('logs');
+            box.innerHTML += `> ${msg}<br>`;
+            box.scrollTop = box.scrollHeight;
+            console.log(msg);
+        }
 
+        // Initialize PeerJS for Laptop Dashboard
+        const peer = new Peer();
         peer.on('open', (id) => {
-            document.getElementById("peer-id-display").innerText = "Laptop Link ID: " + id;
+            document.getElementById('peer-id').innerText = id;
+            log("PeerJS ready. Share ID with laptop.html");
         });
 
-        peer.on('connection', (c) => {
-            conn = c;
-            document.getElementById("status").innerText = "Connected to Laptop Dashboard!";
+        peer.on('connection', (conn) => {
+            activeConnection = conn;
+            log("Laptop dashboard connected!");
+            conn.on('data', (data) => log("From Laptop: " + data));
         });
 
-        // Bluetooth MUST trigger immediately upon user tap to satisfy iOS gesture rules
-        async function connectHubAndLoadModel() {
+        // Step 1: Connect to Pybricks Hub via Web Bluetooth & Load TM Model
+        async function connectHubAndAI() {
             try {
-                document.getElementById("status").innerText = "Scanning for Pybricks Hub...";
+                document.getElementById('status').innerText = "Connecting to Hub & AI...";
+                log("Requesting Bluetooth Device...");
+
+                // Pybricks Nordic UART Service UUIDs
+                const PYBRICKS_SERVICE_UUID = '6e400101-b5a3-f393-e0a9-e50e24dcca9e';
+                const UART_RX_CHARACTERISTIC = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // Write characteristic
 
                 bluetoothDevice = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: [NORDIC_UART_SERVICE]
+                    filters: [{ services: [PYBRICKS_SERVICE_UUID] }],
+                    optionalServices: [PYBRICKS_SERVICE_UUID]
                 });
 
-                document.getElementById("status").innerText = "Connecting to Hub GATT Server...";
                 const server = await bluetoothDevice.gatt.connect();
+                const service = await server.getPrimaryService(PYBRICKS_SERVICE_UUID);
+                uartRxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC);
+                log("Bluetooth connected & UART RX bound!");
 
-                document.getElementById("status").innerText = "Connecting UART Service...";
-                const service = await server.getPrimaryService(NORDIC_UART_SERVICE);
-                uartCharacteristic = await service.getCharacteristic(UART_TX_CHAR);
-
-                const rxCharacteristic = await service.getCharacteristic(UART_RX_CHAR);
-                await rxCharacteristic.startNotifications();
-                rxCharacteristic.addEventListener('characteristicvaluechanged', handleHubMessage);
-
-                document.getElementById("status").innerText = "Hub Connected! Loading AI Model...";
-                model = await tmImage.load(TM_URL + "model.json", TM_URL + "metadata.json");
+                // Load Teachable Machine Model
+                log("Loading Teachable Machine Model...");
+                const modelURL = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+                model = await tmImage.load(modelURL, metadataURL);
                 maxPredictions = model.getTotalClasses();
+                log("AI Model Loaded Successfully!");
 
-                document.getElementById("status").innerText = "Hub Connected & AI Model Loaded!";
-            } catch (err) {
-                document.getElementById("status").innerText = "Error: " + err.message;
-                console.error(err);
+                document.getElementById('status').innerText = "Hub & AI Connected!";
+                document.getElementById('connect-btn').style.background = "#34c759";
+                document.getElementById('stream-btn').disabled = false;
+
+            } catch (error) {
+                log("Error during connection: " + error);
+                document.getElementById('status').innerText = "Connection Failed";
             }
         }
 
-        function handleHubMessage(event) {
-            const message = new TextDecoder().decode(event.target.value);
-            if (conn) {
-                const isReport = message.includes("FINAL") || message.includes("REPORT") || message.includes("Cycles Executed");
-                conn.send({ type: isReport ? 'report' : 'log', data: message });
-            }
-        }
-
+        // Step 2: Start Camera and AI Loop
         async function startCameraAndStream() {
-            if (!model) { alert("Please connect Hub and load AI model first!"); return; }
-
             try {
-                document.getElementById("status").innerText = "Starting Camera...";
-                webcam = new tmImage.Webcam(window.innerWidth, window.innerHeight, false);
-                await webcam.setup({ facingMode: "environment" });
+                log("Starting camera feed...");
+                const flip = true;
+                webcam = new tmImage.Webcam(320, 240, flip);
+                await webcam.setup(); // Requests camera permissions
                 await webcam.play();
-
-                document.getElementById("webcam-container").innerHTML = "";
-                document.getElementById("webcam-container").appendChild(webcam.canvas);
-
-                localStream = webcam.canvas.captureStream(30);
-                if (conn) { peer.call(conn.peer, localStream); }
-
+                document.getElementById('webcam').srcObject = webcam.webcam.srcObject;
+                
+                isRunning = true;
                 window.requestAnimationFrame(loop);
-                document.getElementById("status").innerText = "AI Camera Running & Streaming!";
+                document.getElementById('status').innerText = "AI Streaming Active";
+                document.getElementById('stream-btn').style.background = "#34c759";
+                log("Camera loop running.");
+
             } catch (err) {
-                document.getElementById("status").innerText = "Camera Error: " + err.message;
+                log("Camera error: " + err);
             }
         }
 
+        // Main AI Prediction & Command Loop
         async function loop() {
+            if (!isRunning) return;
             webcam.update();
             await predict();
             window.requestAnimationFrame(loop);
@@ -135,19 +137,37 @@
 
         async function predict() {
             const prediction = await model.predict(webcam.canvas);
-            let best = prediction[0];
-            for (let i = 1; i < maxPredictions; i++) {
-                if (prediction[i].probability > best.probability) best = prediction[i];
+            
+            // Find highest confidence prediction
+            let bestIndex = 0;
+            let highestProb = 0;
+            for (let i = 0; i < maxPredictions; i++) {
+                if (prediction[i].probability > highestProb) {
+                    highestProb = prediction[i].probability;
+                    bestIndex = i;
+                }
             }
-            let conf = Math.round(best.probability * 100);
 
-            // Forward class prediction index to Pybricks Hub over Bluetooth
-            if (uartCharacteristic && conf > 75) {
-                let classIndex = prediction.findIndex(p => p.className === best.className);
-                let data = new TextEncoder().encode(classIndex + "\n");
+            let confidencePercent = Math.round(highestProb * 100);
+
+            // If confidence is high (>75%), transmit command byte to Hub's Slot 2 script
+            if (confidencePercent > 75 && uartRxCharacteristic) {
                 try {
-                    await uartCharacteristic.writeValue(data);
-                } catch(e) {}
+                    let commandChar = bestIndex.toString(); // Sends "0", "1", "2", or "3"
+                    let data = new TextEncoder().encode(commandChar);
+                    await uartRxCharacteristic.writeValue(data);
+                    log(`Sent Class ${commandChar} (${confidencePercent}%) to hub`);
+                } catch (err) {
+                    console.error("UART write error:", err);
+                }
+            }
+
+            // Stream telemetry to laptop dashboard if connected
+            if (activeConnection && activeConnection.open) {
+                activeConnection.send({
+                    class: prediction[bestIndex].className,
+                    confidence: confidencePercent
+                });
             }
         }
     </script>
