@@ -2,90 +2,110 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>BioScan Transmitter</title>
     <style>
-        * { box-sizing: border-box; }
-        body, html { 
-            margin: 0; 
-            padding: 0; 
-            width: 100vw; 
-            height: 100vh; 
-            background: #000; 
-            overflow: hidden; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        
+        /* Flex Layout Container */
+        .app-container {
             display: flex;
             flex-direction: column;
+            width: 100vw;
+            height: 100vh;
         }
-        
-        /* Top Header Bar */
+
+        /* Top Header */
         .header {
-            height: 45px;
+            height: 40px;
             background: #000;
             color: #fff;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.1rem;
+            font-size: 1rem;
             font-weight: 600;
-            letter-spacing: 0.5px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
             flex-shrink: 0;
-            z-index: 10;
         }
 
-        /* 90% Camera Container */
-        #webcam-container { 
-            height: calc(90vh - 45px); 
-            width: 100vw; 
+        /* Camera Section - Fills available 90% space */
+        .camera-viewport { 
+            flex: 1;
             position: relative; 
             background: #111;
+            width: 100vw;
             overflow: hidden;
         }
         
-        #webcam-container canvas, #webcam-container video { 
+        /* Force generated Canvas to strictly fill viewport */
+        .camera-viewport canvas, .camera-viewport video { 
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100% !important; 
             height: 100% !important; 
             object-fit: cover !important; 
         }
 
-        /* Bottom 10% HUD Area */
+        /* On-Screen Telemetry Overlay */
+        .prediction-overlay {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            background: rgba(0, 0, 0, 0.65);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 10px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            z-index: 5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .class-name { font-size: 1.1rem; font-weight: bold; color: #00ffcc; }
+        .confidence { font-size: 1rem; font-family: monospace; color: #fff; }
+
+        /* Bottom HUD Area */
         .hud-bottom {
-            height: 10vh;
+            height: 70px;
             width: 100vw;
             background: #000;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
-            z-index: 10;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
         }
 
         .hud-card {
-            background: rgba(255, 255, 255, 0.05);
-            padding: 8px 24px;
-            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 20px;
+            border-radius: 20px;
             display: flex;
             align-items: center;
             gap: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.2);
             color: #fff;
         }
 
         .hud-label { 
-            font-size: 0.75rem; 
+            font-size: 0.7rem; 
             text-transform: uppercase; 
             letter-spacing: 1px; 
             color: #aaa; 
             line-height: 1.1;
-            text-align: left;
         }
 
         #room-code { 
-            font-size: 1.5rem; 
+            font-size: 1.4rem; 
             font-weight: 700; 
-            letter-spacing: 4px; 
+            letter-spacing: 3px; 
             color: #00ffcc; 
             font-family: monospace; 
         }
@@ -93,21 +113,29 @@
 </head>
 <body>
 
-    <!-- Top Header -->
-    <div class="header">BioScan Transmitter</div>
+    <div class="app-container">
+        <!-- Top Title -->
+        <div class="header">BioScan Transmitter</div>
 
-    <!-- 90% Screen Camera Viewport -->
-    <div id="webcam-container"></div>
+        <!-- Camera Container -->
+        <div class="camera-viewport" id="webcam-container">
+            <!-- Model Live Telemetry Overlay -->
+            <div class="prediction-overlay">
+                <span class="class-name" id="detected-class">Initializing Model...</span>
+                <span class="confidence" id="detected-confidence">0%</span>
+            </div>
+        </div>
 
-    <!-- Bottom 10% Room ID Display -->
-    <div class="hud-bottom">
-        <div class="hud-card">
-            <div class="hud-label">ROOM<br>ID:</div>
-            <span id="room-code">----</span>
+        <!-- Bottom Room ID HUD -->
+        <div class="hud-bottom">
+            <div class="hud-card">
+                <div class="hud-label">ROOM<br>ID:</div>
+                <span id="room-code">----</span>
+            </div>
         </div>
     </div>
 
-    <!-- Load TensorFlow.js, Teachable Machine, and PeerJS -->
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
@@ -116,31 +144,34 @@
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/WIpR1ZP5s/";
         
         let model, webcam, peer, conn;
+
+        // Generate 4-digit code immediately on load
         const roomCode = Math.floor(1000 + Math.random() * 9000);
         document.getElementById('room-code').innerText = roomCode;
 
         async function init() {
             try {
-                // Load Teachable Machine model
-                model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
-
-                // Setup camera aspect to fit viewport
-                const container = document.getElementById("webcam-container");
-                webcam = new tmImage.Webcam(container.clientWidth, container.clientHeight, true);
-                await webcam.setup({ facingMode: "environment" });
-                await webcam.play();
-                
-                container.appendChild(webcam.canvas);
-                
                 // Initialize PeerJS broadcaster
                 peer = new Peer(`bioscan-${roomCode}`);
                 peer.on('connection', (connection) => {
                     conn = connection;
                 });
 
+                // Load Teachable Machine model
+                model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+
+                // Setup camera stream with fixed dimensions (CSS will scale it to fill container)
+                const flip = false; // set to false for rear camera
+                webcam = new tmImage.Webcam(400, 400, flip);
+                await webcam.setup({ facingMode: "environment" });
+                await webcam.play();
+                
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+
                 window.requestAnimationFrame(loop);
             } catch (err) {
                 console.error("Initialization error:", err);
+                document.getElementById("detected-class").innerText = "Camera Access Error";
             }
         }
 
@@ -151,10 +182,15 @@
         }
 
         async function predict() {
+            if (!model) return;
             const prediction = await model.predict(webcam.canvas);
             let best = prediction.reduce((prev, current) => (prev.probability > current.probability) ? prev : current);
             
-            // Transmit top detection to laptop
+            // Update on-screen telemetry
+            document.getElementById("detected-class").innerText = best.className;
+            document.getElementById("detected-confidence").innerText = `${(best.probability * 100).toFixed(0)}%`;
+
+            // Transmit results to laptop
             if (conn && conn.open) {
                 conn.send({
                     class: best.className,
@@ -164,7 +200,7 @@
             }
         }
 
-        window.addEventListener('load', init);
+        window.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>
