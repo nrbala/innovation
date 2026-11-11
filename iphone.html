@@ -3,24 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>iPhone AI Camera & Bridge</title>
-    <!-- PeerJS for video and telemetry relay to laptop -->
+    <title>iPhone AI Camera & Hub Bridge</title>
+
+    <!-- PeerJS for video/data streaming -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <!-- TensorFlow.js and Teachable Machine Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-    
+
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, sans-serif; }
         #webcam-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
         #webcam-container canvas, #webcam-container video { width: 100vw !important; height: 100vh !important; object-fit: cover !important; }
-        .overlay-ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; pointer-events: none; }
+        .overlay-ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; box-sizing: border-box; pointer-events: none; }
         .interactive { pointer-events: auto; }
-        h2 { color: #fff; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 8px; margin: 0 auto; font-size: 18px; text-align: center; }
-        .bottom-section { background: rgba(0,0,0,0.8); padding: 15px; border-radius: 15px; display: flex; flex-direction: column; align-items: center; }
-        button { width: 100%; max-width: 300px; margin: 5px 0; padding: 12px; font-size: 15px; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
-        #status { font-size: 13px; color: #ffeb3b; margin-bottom: 5px; font-weight: bold; text-align: center; }
-        #peer-id-display { color: #00ffcc; font-size: 12px; margin-top: 5px; text-align: center; }
+        h2 { color: #fff; background: rgba(0,0,0,0.65); padding: 10px; border-radius: 8px; margin: 0 auto; font-size: 18px; text-align: center; }
+        .bottom-section { background: rgba(0,0,0,0.85); padding: 15px; border-radius: 15px; display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 360px; margin: 0 auto; }
+        button { width: 100%; margin: 6px 0; padding: 14px; font-size: 15px; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
+        button:active { background: #0056b3; }
+        #status { font-size: 13px; color: #ffeb3b; margin-bottom: 6px; font-weight: bold; text-align: center; }
+        #peer-id-display { color: #00ffcc; font-size: 13px; font-weight: bold; margin-top: 4px; text-align: center; }
     </style>
 </head>
 <body>
@@ -32,22 +34,28 @@
             <h2>iPhone AI Camera Node</h2>
         </div>
         <div class="bottom-section interactive">
-            <div id="status">Status: Ready to load model</div>
+            <div id="status">Status: Ready to connect</div>
             <div id="peer-id-display">Generating Laptop Link ID...</div>
-            <button onclick="loadModelAndInit()">1. Load AI Model & Connect</button>
+            <button onclick="connectHubAndLoadModel()">1. Connect Pybricks Hub & Load AI</button>
             <button onclick="startCameraAndStream()">2. Start Camera & Stream to Laptop</button>
         </div>
     </div>
 
     <script>
-        const URL = "https://teachablemachine.withgoogle.com/models/f8py7VUd2/";
+        const TM_URL = "https://teachablemachine.withgoogle.com/models/f8py7VUd2/";
+        const NORDIC_UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+        const UART_TX_CHAR = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+        const UART_RX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
         let model, webcam, maxPredictions;
         let bluetoothDevice, uartCharacteristic;
         let peer, conn, localStream;
 
-        const peerId = "iphone-robot-" + Math.floor(Math.random() * 10000);
+        // Generate clean PeerJS ID
+        const shortId = Math.floor(1000 + Math.random() * 9000);
+        const peerId = "iphone-robot-cam-" + shortId;
         peer = new Peer(peerId);
-        
+
         peer.on('open', (id) => {
             document.getElementById("peer-id-display").innerText = "Laptop Link ID: " + id;
         });
@@ -57,34 +65,32 @@
             document.getElementById("status").innerText = "Connected to Laptop Dashboard!";
         });
 
-        async function loadModelAndInit() {
+        // Bluetooth MUST trigger immediately upon user tap to satisfy iOS gesture rules
+        async function connectHubAndLoadModel() {
             try {
-                // 1. TRIGGER BLUETOOTH IMMEDIATELY (Must happen first for iOS user gesture rules)
                 document.getElementById("status").innerText = "Scanning for Pybricks Hub...";
-                
+
                 bluetoothDevice = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
-                    optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
+                    optionalServices: [NORDIC_UART_SERVICE]
                 });
 
-                document.getElementById("status").innerText = "Connecting to GATT Server...";
+                document.getElementById("status").innerText = "Connecting to Hub GATT Server...";
                 const server = await bluetoothDevice.gatt.connect();
-                
-                document.getElementById("status").innerText = "Getting UART Service...";
-                const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
-                
-                uartCharacteristic = await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
 
-                const rxCharacteristic = await service.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+                document.getElementById("status").innerText = "Connecting UART Service...";
+                const service = await server.getPrimaryService(NORDIC_UART_SERVICE);
+                uartCharacteristic = await service.getCharacteristic(UART_TX_CHAR);
+
+                const rxCharacteristic = await service.getCharacteristic(UART_RX_CHAR);
                 await rxCharacteristic.startNotifications();
                 rxCharacteristic.addEventListener('characteristicvaluechanged', handleHubMessage);
 
-                // 2. LOAD AI MODEL AFTER BLUETOOTH IS CONNECTED
-                document.getElementById("status").innerText = "Loading AI Model (f8py7VUd2)...";
-                model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+                document.getElementById("status").innerText = "Hub Connected! Loading AI Model...";
+                model = await tmImage.load(TM_URL + "model.json", TM_URL + "metadata.json");
                 maxPredictions = model.getTotalClasses();
 
-                document.getElementById("status").innerText = "Hub Connected & Model Loaded!";
+                document.getElementById("status").innerText = "Hub Connected & AI Model Loaded!";
             } catch (err) {
                 document.getElementById("status").innerText = "Error: " + err.message;
                 console.error(err);
@@ -94,19 +100,20 @@
         function handleHubMessage(event) {
             const message = new TextDecoder().decode(event.target.value);
             if (conn) {
-                conn.send({ type: message.includes("REPORT") ? 'report' : 'log', data: message });
+                const isReport = message.includes("FINAL") || message.includes("REPORT") || message.includes("Cycles Executed");
+                conn.send({ type: isReport ? 'report' : 'log', data: message });
             }
         }
 
         async function startCameraAndStream() {
-            if (!model) { alert("Please load the AI model first!"); return; }
+            if (!model) { alert("Please connect Hub and load AI model first!"); return; }
 
             try {
                 document.getElementById("status").innerText = "Starting Camera...";
                 webcam = new tmImage.Webcam(window.innerWidth, window.innerHeight, false);
                 await webcam.setup({ facingMode: "environment" });
                 await webcam.play();
-                
+
                 document.getElementById("webcam-container").innerHTML = "";
                 document.getElementById("webcam-container").appendChild(webcam.canvas);
 
@@ -116,7 +123,7 @@
                 window.requestAnimationFrame(loop);
                 document.getElementById("status").innerText = "AI Camera Running & Streaming!";
             } catch (err) {
-                document.getElementById("status").innerText = "Camera Error: " + err;
+                document.getElementById("status").innerText = "Camera Error: " + err.message;
             }
         }
 
@@ -134,10 +141,13 @@
             }
             let conf = Math.round(best.probability * 100);
 
+            // Forward class prediction index to Pybricks Hub over Bluetooth
             if (uartCharacteristic && conf > 75) {
                 let classIndex = prediction.findIndex(p => p.className === best.className);
                 let data = new TextEncoder().encode(classIndex + "\n");
-                await uartCharacteristic.writeValue(data);
+                try {
+                    await uartCharacteristic.writeValue(data);
+                } catch(e) {}
             }
         }
     </script>
